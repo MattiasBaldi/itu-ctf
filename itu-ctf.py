@@ -233,6 +233,7 @@ def cmd_ls(session, csrf_token, args):
         return
 
     challenges.sort(key=lambda c: (c.get("category", ""), c.get("value", 0)))
+    print(f"    {'ID':>3}  {'PTS':>4}  NAME")
     last_category = None
     for c in challenges:
         if c.get("category") != last_category:
