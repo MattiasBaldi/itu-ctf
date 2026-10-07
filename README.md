@@ -20,26 +20,33 @@ ln -s "$(pwd)/itu-ctf.py" ~/bin/itu-ctf   # any directory already on your PATH w
 ## Usage
 
 ```bash
-itu-ctf auth             # log in once and cache the session (optional - other
-                         # commands will prompt automatically if not logged in)
-itu-ctf ls                 # list all challenges (id, category, points, solved, name)
-itu-ctf show <id>          # full description, tags, hints, file links for one challenge
-itu-ctf get <id>           # download one challenge's files into ./<id>_<name>/
-itu-ctf get                # fetch EVERYTHING into ./<category>/<id>_<name>/
-                           # (each folder gets a README.md + any attached files)
-itu-ctf get [<id>] -o DIR  # root output under DIR instead of the current directory
-itu-ctf logout            # clear the cached session
+itu-ctf auth          # log in once and cache the session (optional - other
+                      # commands will prompt automatically if not logged in)
+itu-ctf ls            # list challenges: id, points, solved, name
+itu-ctf show <id>     # full description, tags, hints, file links
+itu-ctf get <id>      # download one challenge into ./<id>_<name>/
+itu-ctf get           # download ALL (or filtered) into ./<category>/<id>_<name>/
+                      # (each folder gets a README.md + any attached files)
+itu-ctf get -o DIR    # ...rooted under DIR instead of the current directory
+itu-ctf logout        # clear the cached session
 ```
 
 ### Filters
 
-`ls` and `get` (when no id is given) accept filters, which can be combined:
+`ls` and `get` (when no id is given) take filters, and they combine freely:
 
 ```bash
-itu-ctf ls --unsolved                    # only challenges you haven't solved
-itu-ctf ls --category web                # only the "web" category (case-insensitive)
-itu-ctf ls --unsolved --category web
-itu-ctf ls --min-points 100 --max-points 300
+itu-ctf ls -u                  # not solved yet
+itu-ctf ls -c web              # one category (case-insensitive)
+itu-ctf ls -u -c web           # combined
+itu-ctf ls --min 100 --max 300 # points range
 
-itu-ctf get --unsolved -o ~/ctf-practice # bulk-download just the unsolved ones
+itu-ctf get -u -o ~/ctf-practice   # bulk-download just the unsolved ones
 ```
+
+| flag | meaning |
+|---|---|
+| `-u`, `--unsolved` | not solved yet |
+| `-s`, `--solved` | already solved |
+| `-c`, `--category NAME` | one category |
+| `--min N` / `--max N` | points range |

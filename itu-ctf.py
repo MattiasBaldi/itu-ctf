@@ -9,23 +9,21 @@ so you aren't re-prompted on every command - a fresh login only happens
 when there's no cache yet or the cached session has expired.
 
 Usage:
-    itu-ctf ls                 list all challenges (id, category, points, solved, name)
-    itu-ctf show <id>          show a challenge's full description, tags, hints, files
-    itu-ctf get                fetch ALL challenges into ./<category>/<id>_<name>/
-                               (each folder gets a README.md with the description
-                               plus any attached files)
-    itu-ctf get <id>           fetch just one challenge into ./<id>_<name>/
-    itu-ctf get [<id>] -o DIR  ...rooted under DIR instead of the current directory
-    itu-ctf logout             clear the cached session (forces re-login next run)
+    itu-ctf ls              list challenges (id, points, solved, name)
+    itu-ctf show <id>       full description, tags, hints, files for one
+    itu-ctf get <id>        download one challenge into ./<id>_<name>/
+    itu-ctf get             download ALL (or filtered) into ./<category>/<id>_<name>/
+    itu-ctf get -o DIR      ...rooted under DIR instead of the current directory
+    itu-ctf logout          clear the cached session
 
-Filters (ls and get, when no id is given):
-    --unsolved                 only challenges you haven't solved
-    --solved                   only challenges you've already solved
-    --category NAME            only this category (case-insensitive)
-    --min-points N / --max-points N   only challenges in a points range
+Filters (ls and get, when no id given) - combine freely:
+    -u, --unsolved          not solved yet
+    -s, --solved            already solved
+    -c, --category NAME     one category (case-insensitive)
+    --min N  --max N        points range
 
-    e.g. itu-ctf ls --unsolved --category web
-         itu-ctf get --unsolved -o ~/ctf-practice
+    e.g. itu-ctf ls -u -c web
+         itu-ctf get -u -o ~/ctf-practice
 """
 import argparse
 import getpass
@@ -165,11 +163,11 @@ def slugify(name: str) -> str:
 
 
 def add_filter_args(parser):
-    parser.add_argument("--unsolved", action="store_true", help="only challenges you haven't solved")
-    parser.add_argument("--solved", action="store_true", help="only challenges you've already solved")
-    parser.add_argument("--category", help="only this category (case-insensitive)")
-    parser.add_argument("--min-points", type=int, help="only challenges worth at least this many points")
-    parser.add_argument("--max-points", type=int, help="only challenges worth at most this many points")
+    parser.add_argument("-u", "--unsolved", action="store_true", help="not solved yet")
+    parser.add_argument("-s", "--solved", action="store_true", help="already solved")
+    parser.add_argument("-c", "--category", metavar="NAME", help="category (case-insensitive)")
+    parser.add_argument("--min", type=int, metavar="N", help="min points")
+    parser.add_argument("--max", type=int, metavar="N", help="max points")
 
 
 def filter_challenges(challenges, args):
@@ -181,12 +179,12 @@ def filter_challenges(challenges, args):
     category = getattr(args, "category", None)
     if category:
         result = [c for c in result if (c.get("category") or "").lower() == category.lower()]
-    min_points = getattr(args, "min_points", None)
-    if min_points is not None:
-        result = [c for c in result if (c.get("value") or 0) >= min_points]
-    max_points = getattr(args, "max_points", None)
-    if max_points is not None:
-        result = [c for c in result if (c.get("value") or 0) <= max_points]
+    lo = getattr(args, "min", None)
+    if lo is not None:
+        result = [c for c in result if (c.get("value") or 0) >= lo]
+    hi = getattr(args, "max", None)
+    if hi is not None:
+        result = [c for c in result if (c.get("value") or 0) <= hi]
     return result
 
 
@@ -236,9 +234,9 @@ def cmd_ls(session, csrf_token, args):
     for c in challenges:
         if c.get("category") != last_category:
             last_category = c.get("category")
-            print(f"\n== {last_category} ==")
+            print(f"\n{last_category}")
         solved = "x" if c.get("solved_by_me") else " "
-        print(f"[{solved}] id={c.get('id'):<4} {c.get('value', 0):>4} pts  {c.get('name')}")
+        print(f"[{solved}] {c.get('id'):>3}  {c.get('value', 0):>4}  {c.get('name')}")
 
 
 def cmd_show(session, csrf_token, args):
@@ -302,29 +300,29 @@ def cmd_get(session, csrf_token, args):
         chall_dir = os.path.join(base_dir, category, f"{cid}_{slugify(detail.get('name'))}")
         save_challenge(session, chall_dir, detail)
         solved = "x" if detail.get("solved_by_me") else " "
-        print(f"[{solved}] [{cid}] {detail.get('name')} -> {chall_dir}")
+        print(f"[{solved}] {cid:>3}  {detail.get('name')} -> {chall_dir}")
 
 
 def main():
     parser = argparse.ArgumentParser(prog="itu-ctf", description="CLI for ctf.itunderground.dk")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("auth", help="log in and cache the session (like 'gh auth login')")
+    sub.add_parser("auth", help="log in and cache the session")
 
-    ls_p = sub.add_parser("ls", help="list challenges (supports filters)")
-    ls_p.add_argument("--json", action="store_true", help="print raw JSON")
+    ls_p = sub.add_parser("ls", help="list challenges")
+    ls_p.add_argument("--json", action="store_true", help="raw JSON")
     add_filter_args(ls_p)
 
-    show_p = sub.add_parser("show", help="show a challenge's description, tags, hints, files")
-    show_p.add_argument("id", help="challenge id (see 'ls')")
-    show_p.add_argument("--json", action="store_true", help="print raw JSON")
+    show_p = sub.add_parser("show", help="show one challenge in full")
+    show_p.add_argument("id")
+    show_p.add_argument("--json", action="store_true", help="raw JSON")
 
-    get_p = sub.add_parser("get", help="download one challenge (id given) or matching ones (no id, filters apply)")
-    get_p.add_argument("id", nargs="?", help="challenge id (see 'ls'); omit to fetch everything matching the filters")
-    get_p.add_argument("-o", "--output", default=".", help="base directory (default: current dir)")
+    get_p = sub.add_parser("get", help="download one (id given) or all/filtered (no id)")
+    get_p.add_argument("id", nargs="?")
+    get_p.add_argument("-o", "--output", default=".", metavar="DIR", help="output dir (default: .)")
     add_filter_args(get_p)
 
-    sub.add_parser("logout", help="clear the cached session (forces re-login next run)")
+    sub.add_parser("logout", help="clear the cached session")
 
     args = parser.parse_args()
 
