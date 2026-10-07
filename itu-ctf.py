@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ituctf - CLI for ctf.itunderground.dk (CTFd).
+"""itu-ctf - CLI for ctf.itunderground.dk (CTFd).
 
 Login credentials themselves are never stored by this tool. Provide them
 via the CTF_USERNAME / CTF_PASSWORD environment variables, or it will
@@ -9,14 +9,14 @@ so you aren't re-prompted on every command - a fresh login only happens
 when there's no cache yet or the cached session has expired.
 
 Usage:
-    ituctf ls                 list all challenges (id, category, points, solved, name)
-    ituctf show <id>          show a challenge's full description, tags, hints, files
-    ituctf get                fetch ALL challenges into ./<category>/<id>_<name>/
+    itu-ctf ls                 list all challenges (id, category, points, solved, name)
+    itu-ctf show <id>          show a challenge's full description, tags, hints, files
+    itu-ctf get                fetch ALL challenges into ./<category>/<id>_<name>/
                                (each folder gets a README.md with the description
                                plus any attached files)
-    ituctf get <id>           fetch just one challenge into ./<id>_<name>/
-    ituctf get [<id>] -o DIR  ...rooted under DIR instead of the current directory
-    ituctf logout             clear the cached session (forces re-login next run)
+    itu-ctf get <id>           fetch just one challenge into ./<id>_<name>/
+    itu-ctf get [<id>] -o DIR  ...rooted under DIR instead of the current directory
+    itu-ctf logout             clear the cached session (forces re-login next run)
 """
 import argparse
 import getpass
@@ -29,8 +29,8 @@ from urllib.parse import urlparse
 import requests
 
 BASE_URL = "https://ctf.itunderground.dk"
-USER_AGENT = "ituctf-cli/1.0"
-CACHE_DIR = os.path.expanduser("~/.cache/ituctf")
+USER_AGENT = "itu-ctf-cli/1.0"
+CACHE_DIR = os.path.expanduser("~/.cache/itu-ctf")
 CACHE_FILE = os.path.join(CACHE_DIR, "session.json")
 
 
@@ -262,7 +262,7 @@ def cmd_get(session, csrf_token, args):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="ituctf", description="CLI for ctf.itunderground.dk")
+    parser = argparse.ArgumentParser(prog="itu-ctf", description="CLI for ctf.itunderground.dk")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("auth", help="log in and cache the session (like 'gh auth login')")
