@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ctf - CLI for ctf.itunderground.dk (CTFd).
+"""ituctf - CLI for ctf.itunderground.dk (CTFd).
 
 Login credentials themselves are never stored by this tool. Provide them
 via the CTF_USERNAME / CTF_PASSWORD environment variables, or it will
@@ -9,14 +9,14 @@ so you aren't re-prompted on every command - a fresh login only happens
 when there's no cache yet or the cached session has expired.
 
 Usage:
-    ctf ls                 list all challenges (id, category, points, solved, name)
-    ctf show <id>          show a challenge's full description, tags, hints, files
-    ctf get                fetch ALL challenges into ./<category>/<id>_<name>/
-                            (each folder gets a README.md with the description
-                            plus any attached files)
-    ctf get <id>           fetch just one challenge into ./<id>_<name>/
-    ctf get [<id>] -o DIR  ...rooted under DIR instead of the current directory
-    ctf logout             clear the cached session (forces re-login next run)
+    ituctf ls                 list all challenges (id, category, points, solved, name)
+    ituctf show <id>          show a challenge's full description, tags, hints, files
+    ituctf get                fetch ALL challenges into ./<category>/<id>_<name>/
+                               (each folder gets a README.md with the description
+                               plus any attached files)
+    ituctf get <id>           fetch just one challenge into ./<id>_<name>/
+    ituctf get [<id>] -o DIR  ...rooted under DIR instead of the current directory
+    ituctf logout             clear the cached session (forces re-login next run)
 """
 import argparse
 import getpass
@@ -29,8 +29,8 @@ from urllib.parse import urlparse
 import requests
 
 BASE_URL = "https://ctf.itunderground.dk"
-USER_AGENT = "ctf-cli/1.0"
-CACHE_DIR = os.path.expanduser("~/.cache/ctf-tool")
+USER_AGENT = "ituctf-cli/1.0"
+CACHE_DIR = os.path.expanduser("~/.cache/ituctf")
 CACHE_FILE = os.path.join(CACHE_DIR, "session.json")
 
 
@@ -107,6 +107,26 @@ def ensure_auth(session: requests.Session) -> str:
     csrf_token = get_csrf_token(session)
     save_cached_session(session, csrf_token)
     return csrf_token
+
+
+def cmd_auth(session: requests.Session):
+    """Explicit login (like 'gh auth login') - always re-authenticates and
+    overwrites the cache, regardless of whether one already exists."""
+    username, password = get_credentials()
+    login(session, username, password)
+    csrf_token = get_csrf_token(session)
+    save_cached_session(session, csrf_token)
+
+    name = username
+    try:
+        resp = session.get(
+            f"{BASE_URL}/api/v1/users/me",
+            headers={"Accept": "application/json", "CSRF-Token": csrf_token},
+        )
+        name = resp.json().get("data", {}).get("name", username)
+    except (requests.RequestException, ValueError):
+        pass
+    print(f"Logged in as {name}. Session cached at {CACHE_FILE} (not your password - just the session).")
 
 
 def api_get(session: requests.Session, csrf_token: str, path: str):
@@ -242,8 +262,10 @@ def cmd_get(session, csrf_token, args):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="ctf", description="CLI for ctf.itunderground.dk")
+    parser = argparse.ArgumentParser(prog="ituctf", description="CLI for ctf.itunderground.dk")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("auth", help="log in and cache the session (like 'gh auth login')")
 
     ls_p = sub.add_parser("ls", help="list all challenges")
     ls_p.add_argument("--json", action="store_true", help="print raw JSON")
@@ -270,6 +292,11 @@ def main():
 
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
+
+    if args.command == "auth":
+        cmd_auth(session)
+        return
+
     csrf_token = ensure_auth(session)
 
     if args.command == "ls":
