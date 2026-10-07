@@ -22,7 +22,7 @@ ln -s "$(pwd)/itu-ctf.py" ~/bin/itu-ctf   # any directory already on your PATH w
 ```bash
 itu-ctf auth          # log in once and cache the session (optional - other
                       # commands will prompt automatically if not logged in)
-itu-ctf ls            # list challenges: id, points, solved, name
+itu-ctf ls            # list challenges, with a header row: [solved] id pts name
 itu-ctf show <id>     # full description, tags, hints, file links
 itu-ctf get <id>      # download one challenge into ./<id>_<name>/
 itu-ctf get           # download ALL (or filtered) into ./<category>/<id>_<name>/
@@ -30,6 +30,23 @@ itu-ctf get           # download ALL (or filtered) into ./<category>/<id>_<name>
 itu-ctf get -o DIR    # ...rooted under DIR instead of the current directory
 itu-ctf logout        # clear the cached session
 ```
+
+`ls` shows a solved-count summary, a header row, and category sections -
+all aligned to the same columns (widths adjust to fit whatever ids/points
+are in the list, so it won't misalign even with a 4-digit id):
+
+```
+8/9 solved
+
+     ID  PTS  NAME
+
+    WEB
+    ---
+[x]  94   50  NO ROBOTS!
+[ ] 119  400  Super
+```
+
+(`[x]` = solved, `[ ]` = not solved yet, then id, points, name.)
 
 ### Filters
 

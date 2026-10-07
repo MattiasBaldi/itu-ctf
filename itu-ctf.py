@@ -9,7 +9,7 @@ so you aren't re-prompted on every command - a fresh login only happens
 when there's no cache yet or the cached session has expired.
 
 Usage:
-    itu-ctf ls              list challenges (id, points, solved, name)
+    itu-ctf ls              list challenges, with a header row: id, pts, name
     itu-ctf show <id>       full description, tags, hints, files for one
     itu-ctf get <id>        download one challenge into ./<id>_<name>/
     itu-ctf get             download ALL (or filtered) into ./<category>/<id>_<name>/
@@ -233,14 +233,24 @@ def cmd_ls(session, csrf_token, args):
         return
 
     challenges.sort(key=lambda c: (c.get("category", ""), c.get("value", 0)))
-    print(f"    {'ID':>3}  {'PTS':>4}  NAME")
+
+    prefix = "    "  # width of "[x] "
+    id_w = max((len(str(c.get("id", ""))) for c in challenges), default=2)
+    pts_w = max((len(str(c.get("value", 0))) for c in challenges), default=3)
+
+    solved_count = sum(1 for c in challenges if c.get("solved_by_me"))
+    print(f"{solved_count}/{len(challenges)} solved\n")
+    print(f"{prefix}{'ID':>{id_w}}  {'PTS':>{pts_w}}  NAME")
+
     last_category = None
     for c in challenges:
         if c.get("category") != last_category:
             last_category = c.get("category")
-            print(f"\n{last_category}")
+            title = (last_category or "uncategorized").upper()
+            print(f"\n{prefix}{title}")
+            print(f"{prefix}{'-' * len(title)}")
         solved = "x" if c.get("solved_by_me") else " "
-        print(f"[{solved}] {c.get('id'):>3}  {c.get('value', 0):>4}  {c.get('name')}")
+        print(f"[{solved}] {c.get('id'):>{id_w}}  {c.get('value', 0):>{pts_w}}  {c.get('name')}")
 
 
 def cmd_show(session, csrf_token, args):
