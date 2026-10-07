@@ -30,3 +30,16 @@ itu-ctf get                # fetch EVERYTHING into ./<category>/<id>_<name>/
 itu-ctf get [<id>] -o DIR  # root output under DIR instead of the current directory
 itu-ctf logout            # clear the cached session
 ```
+
+### Filters
+
+`ls` and `get` (when no id is given) accept filters, which can be combined:
+
+```bash
+itu-ctf ls --unsolved                    # only challenges you haven't solved
+itu-ctf ls --category web                # only the "web" category (case-insensitive)
+itu-ctf ls --unsolved --category web
+itu-ctf ls --min-points 100 --max-points 300
+
+itu-ctf get --unsolved -o ~/ctf-practice # bulk-download just the unsolved ones
+```
