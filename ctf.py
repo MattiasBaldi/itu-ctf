@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """ctf - CLI for ctf.itunderground.dk (CTFd).
 
-Credentials are never stored by this tool. Provide them via the
-CTF_USERNAME / CTF_PASSWORD environment variables (e.g. export them in
-your shell session), or just run the tool and it will prompt for them
-interactively (password input is hidden).
+Login credentials themselves are never stored by this tool. Provide them
+via the CTF_USERNAME / CTF_PASSWORD environment variables, or it will
+prompt for them interactively (password input is hidden). Once logged in,
+the resulting session cookie + CSRF token are cached to disk (mode 600)
+so you aren't re-prompted on every command - a fresh login only happens
+when there's no cache yet or the cached session has expired.
 
 Usage:
     ctf ls                 list all challenges (id, category, points, solved, name)
@@ -14,6 +16,7 @@ Usage:
                             plus any attached files)
     ctf get <id>           fetch just one challenge into ./<id>_<name>/
     ctf get [<id>] -o DIR  ...rooted under DIR instead of the current directory
+    ctf logout             clear the cached session (forces re-login next run)
 """
 import argparse
 import getpass
@@ -27,6 +30,8 @@ import requests
 
 BASE_URL = "https://ctf.itunderground.dk"
 USER_AGENT = "ctf-cli/1.0"
+CACHE_DIR = os.path.expanduser("~/.cache/ctf-tool")
+CACHE_FILE = os.path.join(CACHE_DIR, "session.json")
 
 
 def get_credentials():
@@ -62,6 +67,46 @@ def get_csrf_token(session: requests.Session) -> str:
     if not match:
         sys.exit("Could not find CSRF token for API calls - site structure may have changed.")
     return match.group(1)
+
+
+def load_cached_session(session: requests.Session):
+    try:
+        with open(CACHE_FILE) as f:
+            data = json.load(f)
+        session.cookies.update(data["cookies"])
+        return data["csrf_token"]
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return None
+
+
+def save_cached_session(session: requests.Session, csrf_token: str):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(CACHE_FILE, "w") as f:
+        json.dump({"cookies": session.cookies.get_dict(), "csrf_token": csrf_token}, f)
+    os.chmod(CACHE_FILE, 0o600)
+
+
+def session_is_valid(session: requests.Session, csrf_token: str) -> bool:
+    try:
+        resp = session.get(
+            f"{BASE_URL}/api/v1/users/me",
+            headers={"Accept": "application/json", "CSRF-Token": csrf_token},
+        )
+        return resp.status_code == 200 and resp.json().get("success", False)
+    except (requests.RequestException, ValueError):
+        return False
+
+
+def ensure_auth(session: requests.Session) -> str:
+    csrf_token = load_cached_session(session)
+    if csrf_token and session_is_valid(session, csrf_token):
+        return csrf_token
+
+    username, password = get_credentials()
+    login(session, username, password)
+    csrf_token = get_csrf_token(session)
+    save_cached_session(session, csrf_token)
+    return csrf_token
 
 
 def api_get(session: requests.Session, csrf_token: str, path: str):
@@ -211,13 +256,21 @@ def main():
     get_p.add_argument("id", nargs="?", help="challenge id (see 'ls'); omit to fetch everything")
     get_p.add_argument("-o", "--output", default=".", help="base directory (default: current dir)")
 
+    sub.add_parser("logout", help="clear the cached session (forces re-login next run)")
+
     args = parser.parse_args()
 
-    username, password = get_credentials()
+    if args.command == "logout":
+        try:
+            os.remove(CACHE_FILE)
+            print("Cached session cleared.")
+        except FileNotFoundError:
+            print("No cached session to clear.")
+        return
+
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
-    login(session, username, password)
-    csrf_token = get_csrf_token(session)
+    csrf_token = ensure_auth(session)
 
     if args.command == "ls":
         cmd_ls(session, csrf_token, args)
