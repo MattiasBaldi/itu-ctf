@@ -16,14 +16,14 @@ Usage:
     itu-ctf get -o DIR      ...rooted under DIR instead of the current directory
     itu-ctf logout          clear the cached session
 
-Filters (ls and get, when no id given) - combine freely:
-    -u, --unsolved          not solved yet
-    -s, --solved            already solved
-    -c, --category NAME     one category (case-insensitive)
-    --min N  --max N        points range
+Filters (ls and get, when no id given) are just bare words, no flags -
+combine as many as you like:
+    unsolved | solved        solve status
+    <category>                e.g. web, crypto (case-insensitive)
+    N-M  or  N+               points range, e.g. 100-300 or 200+
 
-    e.g. itu-ctf ls -u -c web
-         itu-ctf get -u -o ~/ctf-practice
+    e.g. itu-ctf ls unsolved web
+         itu-ctf get unsolved 100-300 -o ~/ctf-practice
 """
 import argparse
 import getpass
@@ -162,29 +162,32 @@ def slugify(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "_", name or "challenge").strip("_")
 
 
-def add_filter_args(parser):
-    parser.add_argument("-u", "--unsolved", action="store_true", help="not solved yet")
-    parser.add_argument("-s", "--solved", action="store_true", help="already solved")
-    parser.add_argument("-c", "--category", metavar="NAME", help="category (case-insensitive)")
-    parser.add_argument("--min", type=int, metavar="N", help="min points")
-    parser.add_argument("--max", type=int, metavar="N", help="max points")
+def filter_challenges(challenges, tokens):
+    """No flags - just bare words: 'unsolved', 'solved', a category name
+    (case-insensitive), or a points range like '100-300' or '200+'."""
+    if not tokens:
+        return challenges
 
-
-def filter_challenges(challenges, args):
+    categories = {(c.get("category") or "").lower() for c in challenges}
     result = challenges
-    if getattr(args, "unsolved", False):
-        result = [c for c in result if not c.get("solved_by_me")]
-    if getattr(args, "solved", False):
-        result = [c for c in result if c.get("solved_by_me")]
-    category = getattr(args, "category", None)
-    if category:
-        result = [c for c in result if (c.get("category") or "").lower() == category.lower()]
-    lo = getattr(args, "min", None)
-    if lo is not None:
-        result = [c for c in result if (c.get("value") or 0) >= lo]
-    hi = getattr(args, "max", None)
-    if hi is not None:
-        result = [c for c in result if (c.get("value") or 0) <= hi]
+    for tok in tokens:
+        low = tok.lower()
+        if low == "unsolved":
+            result = [c for c in result if not c.get("solved_by_me")]
+        elif low == "solved":
+            result = [c for c in result if c.get("solved_by_me")]
+        elif re.fullmatch(r"\d+-\d+", tok):
+            lo, hi = (int(x) for x in tok.split("-"))
+            result = [c for c in result if lo <= (c.get("value") or 0) <= hi]
+        elif re.fullmatch(r"\d+\+", tok):
+            lo = int(tok[:-1])
+            result = [c for c in result if (c.get("value") or 0) >= lo]
+        elif low in categories:
+            result = [c for c in result if (c.get("category") or "").lower() == low]
+        else:
+            valid = ", ".join(sorted(categories)) or "(none)"
+            sys.exit(f"Not a recognized filter: {tok!r}\n"
+                      f"Use 'solved', 'unsolved', a range like 100-300 or 200+, or a category: {valid}")
     return result
 
 
@@ -220,7 +223,7 @@ def save_challenge(session, chall_dir, detail):
 # ---- commands ----
 
 def cmd_ls(session, csrf_token, args):
-    challenges = filter_challenges(fetch_challenges(session, csrf_token), args)
+    challenges = filter_challenges(fetch_challenges(session, csrf_token), args.query)
     if args.json:
         print(json.dumps(challenges, indent=2))
         return
@@ -280,14 +283,15 @@ def cmd_show(session, csrf_token, args):
 def cmd_get(session, csrf_token, args):
     base_dir = args.output
 
-    if args.id:
-        detail = fetch_challenge_detail(session, csrf_token, args.id)
-        chall_dir = os.path.join(base_dir, f"{args.id}_{slugify(detail.get('name'))}")
+    if len(args.query) == 1 and args.query[0].isdigit():
+        challenge_id = args.query[0]
+        detail = fetch_challenge_detail(session, csrf_token, challenge_id)
+        chall_dir = os.path.join(base_dir, f"{challenge_id}_{slugify(detail.get('name'))}")
         save_challenge(session, chall_dir, detail)
         print(f"[{detail.get('id')}] {detail.get('name')} -> {chall_dir}")
         return
 
-    matches = filter_challenges(fetch_challenges(session, csrf_token), args)
+    matches = filter_challenges(fetch_challenges(session, csrf_token), args.query)
     if not matches:
         print("No challenges match those filters.")
         return
@@ -309,18 +313,17 @@ def main():
 
     sub.add_parser("auth", help="log in and cache the session")
 
-    ls_p = sub.add_parser("ls", help="list challenges")
+    ls_p = sub.add_parser("ls", help="list challenges  e.g. ls unsolved web 100-300")
+    ls_p.add_argument("query", nargs="*", help="unsolved | solved | a category | N-M | N+")
     ls_p.add_argument("--json", action="store_true", help="raw JSON")
-    add_filter_args(ls_p)
 
     show_p = sub.add_parser("show", help="show one challenge in full")
     show_p.add_argument("id")
     show_p.add_argument("--json", action="store_true", help="raw JSON")
 
-    get_p = sub.add_parser("get", help="download one (id given) or all/filtered (no id)")
-    get_p.add_argument("id", nargs="?")
+    get_p = sub.add_parser("get", help="download by id, or filtered/all  e.g. get unsolved web")
+    get_p.add_argument("query", nargs="*", help="a challenge id, or filters like 'ls'")
     get_p.add_argument("-o", "--output", default=".", metavar="DIR", help="output dir (default: .)")
-    add_filter_args(get_p)
 
     sub.add_parser("logout", help="clear the cached session")
 

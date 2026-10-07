@@ -33,20 +33,26 @@ itu-ctf logout        # clear the cached session
 
 ### Filters
 
-`ls` and `get` (when no id is given) take filters, and they combine freely:
+No flags - `ls` and `get` (when no id is given) take plain words, and you can
+combine as many as you like:
 
 ```bash
-itu-ctf ls -u                  # not solved yet
-itu-ctf ls -c web              # one category (case-insensitive)
-itu-ctf ls -u -c web           # combined
-itu-ctf ls --min 100 --max 300 # points range
+itu-ctf ls unsolved             # not solved yet
+itu-ctf ls web                  # one category (case-insensitive)
+itu-ctf ls unsolved web         # combined
+itu-ctf ls 100-300              # points range
+itu-ctf ls 200+                 # 200 points or more
 
-itu-ctf get -u -o ~/ctf-practice   # bulk-download just the unsolved ones
+itu-ctf get unsolved -o ~/ctf-practice   # bulk-download just the unsolved ones
 ```
 
-| flag | meaning |
+| word | meaning |
 |---|---|
-| `-u`, `--unsolved` | not solved yet |
-| `-s`, `--solved` | already solved |
-| `-c`, `--category NAME` | one category |
-| `--min N` / `--max N` | points range |
+| `unsolved` | not solved yet |
+| `solved` | already solved |
+| `<category>` | one category, e.g. `web`, `crypto` |
+| `N-M` | points between N and M |
+| `N+` | points N or more |
+
+An unrecognized word exits with an error listing the real category names.
+`get` treats a single bare number as a challenge id instead (`itu-ctf get 119`).
