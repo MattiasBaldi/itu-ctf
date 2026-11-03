@@ -365,5 +365,34 @@ def main():
         cmd_get(session, csrf_token, args)
 
 
+def describe_request_error(err: requests.RequestException) -> str:
+    if isinstance(err, requests.HTTPError) and err.response is not None:
+        status = err.response.status_code
+        path = urlparse(err.response.url).path or "/"
+        if status >= 500:
+            return (f"{BASE_URL} is having problems (HTTP {status} on {path}).\n"
+                    "The CTF server itself is failing - try again later.")
+        if status in (401, 403):
+            return (f"Access denied (HTTP {status} on {path}).\n"
+                    "Your session may have expired - run 'itu-ctf logout' and try again.")
+        if status == 404:
+            return f"Not found (HTTP 404 on {path}) - check the challenge id."
+        if status == 429:
+            return "Rate limited by the server (HTTP 429) - wait a bit and try again."
+        return f"Request failed: HTTP {status} on {path}."
+    if isinstance(err, requests.ConnectionError):
+        return f"Could not connect to {BASE_URL} - check your internet connection or whether the site is up."
+    if isinstance(err, requests.Timeout):
+        return f"{BASE_URL} took too long to respond - try again later."
+    if isinstance(err, requests.JSONDecodeError):
+        return "The server sent an unexpected (non-JSON) response - it may be down or misconfigured."
+    return f"Request failed: {err}"
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except requests.RequestException as err:
+        sys.exit(f"Error: {describe_request_error(err)}")
+    except KeyboardInterrupt:
+        sys.exit("\nAborted.")
