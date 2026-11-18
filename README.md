@@ -26,9 +26,19 @@ itu-ctf ls            # list challenges, with a header row: [solved] id pts name
 itu-ctf show <id>     # full description, tags, hints, file links
 itu-ctf get <id>      # download one challenge into ./<id>_<name>/
 itu-ctf get           # download ALL (or filtered) into ./<category>/<id>_<name>/
-                      # (each folder gets a README.md + any attached files)
+                      # (each folder gets a README.md + every attached file;
+                      # a failing file is reported and doesn't stop the rest)
 itu-ctf get -o DIR    # ...rooted under DIR instead of the current directory
+itu-ctf submit <id> [flag]   # submit a flag (prompts if you leave it out)
 itu-ctf logout        # clear the cached session
+```
+
+`submit` plays the CTF site's notification sound on macOS when the flag is correct (fetched once from the site and cached in `~/.cache/itu-ctf`).
+Exit code is 0 for correct / already solved, 1 otherwise.
+
+```bash
+itu-ctf submit 53 'flag{...}'
+itu-ctf submit 53               # prompts: Flag:
 ```
 
 `ls` shows a solved-count summary, a header row, and category sections -

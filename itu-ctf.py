@@ -14,7 +14,11 @@ Usage:
     itu-ctf get <id>        download one challenge into ./<id>_<name>/
     itu-ctf get             download ALL (or filtered) into ./<category>/<id>_<name>/
     itu-ctf get -o DIR      ...rooted under DIR instead of the current directory
+    itu-ctf submit <id> [flag]   submit a flag (prompts if flag is omitted)
     itu-ctf logout          clear the cached session
+
+Every attached file is downloaded (a challenge can have several). A file that
+fails does not stop the rest; it is reported and the exit code is 1.
 
 Filters (ls and get, when no id given) are just bare words, no flags -
 combine as many as you like:
@@ -30,8 +34,9 @@ import getpass
 import json
 import os
 import re
+import subprocess
 import sys
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import requests
 
@@ -191,8 +196,18 @@ def filter_challenges(challenges, tokens):
     return result
 
 
+def file_name_from_url(url: str) -> str:
+    """Decoded basename of a challenge file URL, never empty or a path segment."""
+    name = unquote(os.path.basename(urlparse(url).path)).replace("/", "_")
+    return name if name not in ("", ".", "..") else "file"
+
+
 def save_challenge(session, chall_dir, detail):
-    """Write README.md + download attached files for one challenge into chall_dir."""
+    """Write README.md and download every attached file into chall_dir.
+
+    A file that fails to download does not stop the others. Returns
+    (saved_names, failures) where failures is a list of (name, reason).
+    """
     os.makedirs(chall_dir, exist_ok=True)
 
     with open(os.path.join(chall_dir, "README.md"), "w") as fh:
@@ -211,13 +226,28 @@ def save_challenge(session, chall_dir, detail):
             tag_names = [t.get("value", t) if isinstance(t, dict) else t for t in tags]
             fh.write(f"Tags: {', '.join(tag_names)}\n")
 
+    saved, failures, used = [], [], set()
     for f in detail.get("files") or []:
         url = f if f.startswith("http") else f"{BASE_URL}{f}"
-        filename = os.path.basename(urlparse(url).path) or "file"
-        resp = session.get(url)
-        resp.raise_for_status()
-        with open(os.path.join(chall_dir, filename), "wb") as fh2:
+        filename = file_name_from_url(url)
+        # Two attachments with the same name must not overwrite each other.
+        base, ext = os.path.splitext(filename)
+        name, n = filename, 2
+        while name in used:
+            name = f"{base}_{n}{ext}"
+            n += 1
+        used.add(name)
+
+        try:
+            resp = session.get(url)
+            resp.raise_for_status()
+        except requests.RequestException as err:
+            failures.append((filename, describe_request_error(err)))
+            continue
+        with open(os.path.join(chall_dir, name), "wb") as fh2:
             fh2.write(resp.content)
+        saved.append(name)
+    return saved, failures
 
 
 # ---- commands ----
@@ -291,15 +321,27 @@ def cmd_show(session, csrf_token, args):
     print(f"\nSolves: {c.get('solves', '?')}   Solved by you: {bool(c.get('solved_by_me'))}")
 
 
+def report_files(saved, failures):
+    """Print the file summary for one challenge; returns True if all files saved."""
+    print(f"    files: {len(saved)} saved" + (f", {len(failures)} FAILED" if failures else ""))
+    for name, reason in failures:
+        print(f"    ! {name}: {reason}", file=sys.stderr)
+    return not failures
+
+
 def cmd_get(session, csrf_token, args):
     base_dir = args.output
+    all_ok = True
 
     if len(args.query) == 1 and args.query[0].isdigit():
         challenge_id = args.query[0]
         detail = fetch_challenge_detail(session, csrf_token, challenge_id)
         chall_dir = os.path.join(base_dir, f"{challenge_id}_{slugify(detail.get('name'))}")
-        save_challenge(session, chall_dir, detail)
+        saved, failures = save_challenge(session, chall_dir, detail)
         print(f"[{detail.get('id')}] {detail.get('name')} -> {chall_dir}")
+        all_ok = report_files(saved, failures)
+        if not all_ok:
+            sys.exit(1)
         return
 
     matches = filter_challenges(fetch_challenges(session, csrf_token), args.query)
@@ -313,9 +355,83 @@ def cmd_get(session, csrf_token, args):
         detail = fetch_challenge_detail(session, csrf_token, cid)
         category = slugify(detail.get("category") or "misc")
         chall_dir = os.path.join(base_dir, category, f"{cid}_{slugify(detail.get('name'))}")
-        save_challenge(session, chall_dir, detail)
+        saved, failures = save_challenge(session, chall_dir, detail)
         solved = "x" if detail.get("solved_by_me") else " "
         print(f"[{solved}] {cid:>3}  {detail.get('name')} -> {chall_dir}")
+        all_ok = report_files(saved, failures) and all_ok
+    if not all_ok:
+        sys.exit(1)
+
+
+SUBMIT_MESSAGES = {
+    "correct": "Correct!",
+    "already_solved": "Already solved by you.",
+    "incorrect": "Incorrect flag.",
+    "paused": "This challenge is paused.",
+    "ratelimited": "Rate limited - wait a bit before submitting again.",
+}
+
+
+def submit_flag(session, csrf_token, challenge_id: int, flag: str):
+    resp = session.post(
+        f"{BASE_URL}/api/v1/challenges/attempt",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "CSRF-Token": csrf_token,
+        },
+        json={"challenge_id": challenge_id, "submission": flag},
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    if not payload.get("success"):
+        sys.exit(f"Submission failed: {payload}")
+    return payload["data"]
+
+
+SOUND_PATH = "/themes/core/static/sounds/notification.mp3"  # the sound the CTF site plays
+SOUND_CACHE = os.path.join(CACHE_DIR, "notification.mp3")
+
+
+def play_correct_sound(session):
+    """Play the website's notification sound on a correct flag (macOS only).
+    The file is fetched from the site once and cached. Best effort: any
+    failure is silently ignored so it never breaks a submission."""
+    try:
+        if sys.platform != "darwin":
+            return
+        if not os.path.exists(SOUND_CACHE):
+            resp = session.get(f"{BASE_URL}{SOUND_PATH}")
+            resp.raise_for_status()
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            with open(SOUND_CACHE, "wb") as fh:
+                fh.write(resp.content)
+        subprocess.Popen(["afplay", SOUND_CACHE],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, requests.RequestException):
+        pass
+
+
+def cmd_submit(session, csrf_token, args):
+    flag = args.flag if args.flag is not None else input("Flag: ")
+    flag = flag.strip()
+    if not flag:
+        sys.exit("No flag given.")
+
+    # The cached CSRF token can go stale while the session is still valid,
+    # which makes the server answer 403 on POST. A fresh one is always accepted.
+    csrf_token = get_csrf_token(session)
+    save_cached_session(session, csrf_token)
+
+    data = submit_flag(session, csrf_token, args.id, flag)
+    status = data.get("status", "unknown")
+    message = SUBMIT_MESSAGES.get(status, status)
+    detail = data.get("message")
+    print(f"[{args.id}] {message}" + (f" {detail}" if detail and status not in ("correct", "already_solved") else ""))
+    if status == "correct":
+        play_correct_sound(session)
+    if status not in ("correct", "already_solved"):
+        sys.exit(1)
 
 
 def main():
@@ -335,6 +451,10 @@ def main():
     get_p = sub.add_parser("get", help="download by id, or filtered/all  e.g. get unsolved web")
     get_p.add_argument("query", nargs="*", help="a challenge id, or filters like 'ls'")
     get_p.add_argument("-o", "--output", default=".", metavar="DIR", help="output dir (default: .)")
+
+    submit_p = sub.add_parser("submit", help="submit a flag  e.g. submit 53 'flag{...}'")
+    submit_p.add_argument("id", type=int, help="challenge id")
+    submit_p.add_argument("flag", nargs="?", help="the flag (prompted for if omitted)")
 
     sub.add_parser("logout", help="clear the cached session")
 
@@ -363,6 +483,8 @@ def main():
         cmd_show(session, csrf_token, args)
     elif args.command == "get":
         cmd_get(session, csrf_token, args)
+    elif args.command == "submit":
+        cmd_submit(session, csrf_token, args)
 
 
 def describe_request_error(err: requests.RequestException) -> str:
